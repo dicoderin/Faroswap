@@ -76,7 +76,6 @@ pharos-testnet-bot/
 ├── f.py      # File utama bot
 ├── pkey.txt           # File untuk menyimpan private keys
 ├── README.md          # File dokumentasi ini
-└── requirements.txt   # Daftar dependensi
 ```
 
 ## Kontribusi
