@@ -193,7 +193,7 @@ class PharosTestnet:
 """
         print(f"{Style.BRIGHT + Fore.CYAN}{banner}")
         print(f"{Style.BRIGHT + Fore.MAGENTA}{'=' * 50}")
-        print(f"{Fore.CYAN}     PHAROS X Faroswap Auto Tx Bot By Kazuha         ")
+        print(f"{Fore.CYAN}     PHAROS X Faroswap Auto Tx Eyren         ")
         print(f"{Fore.CYAN}           LETS FUCK THIS TESTNET           ")
         print(f"{Style.BRIGHT + Fore.MAGENTA}{'=' * 50}")
         print(f"{Fore.GREEN}1. Wrap PHRS to WPHRS")
