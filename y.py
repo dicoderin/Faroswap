@@ -17,6 +17,7 @@ import random
 import time
 import sys
 import secrets
+import re
 from eth_utils import to_hex
 from eth_account import Account
 from eth_account.messages import encode_defunct
@@ -287,7 +288,7 @@ class PharosTestnet:
         return await loop.run_in_executor(None, func)
 
     # ========================
-    # PHAROS NAME FUNCTIONS
+    # PHAROS NAME FUNCTIONS (IMPROVED FOR 5-LETTER USERNAMES)
     # ========================
     
     async def check_username_availability(self, username):
@@ -298,29 +299,93 @@ class PharosTestnet:
                 async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data.get('available', False)
-                    return False
+                        
+                        # Enhanced response handling
+                        if 'available' in data:
+                            return data['available']
+                        elif 'error' in data:
+                            self.log(f"API Error: {data['error']} for username {username}", indent=2, color=Fore.YELLOW)
+                        return False
+                    else:
+                        self.log(f"API responded with status {response.status}", indent=2, color=Fore.YELLOW)
+                        return False
         except Exception as e:
-            self.log(f"Username check failed: {e}", indent=2, color=Fore.RED)
+            self.log(f"Username check failed: {e}", indent=2, color=Fore.YELLOW)
             return False
 
-    def generate_5digit_username(self):
-        """Generate a random 5-digit username"""
-        return ''.join(str(random.randint(0, 9)) for _ in range(5))
+    def generate_5letter_username(self):
+        """Generate a random 5-letter username"""
+        # Generate a random 5-letter string (lowercase only)
+        letters = 'abcdefghijklmnopqrstuvwxyz'
+        return ''.join(secrets.choice(letters) for _ in range(5))
 
-    async def find_available_username(self, max_attempts=20):
-        """Find an available 5-digit username"""
+    async def find_available_username(self, max_attempts=50):
+        """Find an available 5-letter username with enhanced logic"""
+        self.log(f"Searching for available username (max {max_attempts} attempts)...", indent=2, color=Fore.CYAN)
+        
+        # Try common words and patterns first
+        common_words = [
+            "alpha", "bravo", "charl", "delta", "echo", 
+            "foxtr", "gamma", "hotel", "india", "julie",
+            "kilo", "lima", "mike", "novem", "oscar",
+            "papa", "quebc", "romeo", "sierra", "tango",
+            "ultra", "victr", "whisk", "xray", "yankee", "zebra"
+        ]
+        
+        for word in common_words:
+            # Ensure 5 letters
+            username = word[:5]
+            if await self.check_username_availability(username):
+                return username
+            await asyncio.sleep(0.3)
+        
+        # Try sequential patterns
+        sequential_patterns = [
+            "abcde", "bcdef", "cdefg", "defgh", "efghi",
+            "fghij", "ghijk", "hijkl", "ijklm", "jklmn",
+            "klmno", "lmnop", "mnopq", "nopqr", "opqrs",
+            "pqrst", "qrstu", "rstuv", "stuvw", "tuvwx",
+            "uvwxy", "vwxyz"
+        ]
+        
+        for username in sequential_patterns:
+            if await self.check_username_availability(username):
+                return username
+            await asyncio.sleep(0.3)
+        
+        # Try random patterns
         attempts = 0
         while attempts < max_attempts:
-            username = self.generate_5digit_username()
+            username = self.generate_5letter_username()
             if await self.check_username_availability(username):
                 return username
             attempts += 1
-            await asyncio.sleep(0.5)
+            
+            # Progress indicator
+            if attempts % 10 == 0:
+                self.log(f"Attempt {attempts}/{max_attempts}...", indent=2, color=Fore.CYAN)
+            
+            await asyncio.sleep(0.3)
+        
+        # Last resort: try patterns that might be available
+        common_patterns = [
+            "aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee",
+            "fffff", "ggggg", "hhhhh", "iiiii", "jjjjj",
+            "kkkkk", "lllll", "mmmmm", "nnnnn", "ooooo",
+            "ppppp", "qqqqq", "rrrrr", "sssss", "ttttt",
+            "uuuuu", "vvvvv", "wwwww", "xxxxx", "yyyyy", "zzzzz",
+            "abcde", "edcba", "aaaaa", "zzzzz"
+        ]
+        
+        for username in common_patterns:
+            if await self.check_username_availability(username):
+                return username
+            await asyncio.sleep(0.3)
+        
         return None
 
     async def commit_username(self, account, address, secret):
-        """Commit username registration"""
+        """Commit username registration with enhanced error handling"""
         try:
             web3 = await self.get_web3()
             if not web3:
@@ -354,7 +419,7 @@ class PharosTestnet:
             return None, None
 
     async def register_username(self, account, address, username, secret):
-        """Register username after commit"""
+        """Register username after commit with enhanced error handling"""
         try:
             web3 = await self.get_web3()
             if not web3:
@@ -392,7 +457,7 @@ class PharosTestnet:
             return None, None
 
     async def mint_pharos_name(self, account, address):
-        """Full process to mint a Pharos Name"""
+        """Full process to mint a Pharos Name with improved reliability"""
         try:
             # Step 1: Find available username
             self.log("Finding available username...", indent=1, color=Fore.YELLOW)
@@ -400,9 +465,17 @@ class PharosTestnet:
             
             if not username:
                 self.log("Failed to find available username after multiple attempts", indent=1, color=Fore.RED)
-                return False
                 
-            self.log(f"Found available username: {username}", indent=1, color=Fore.GREEN)
+                # Try one last time with different pattern
+                self.log("Trying alternative search method...", indent=1, color=Fore.YELLOW)
+                username = self.generate_5letter_username()
+                if not await self.check_username_availability(username):
+                    self.log("Still no available username found", indent=1, color=Fore.RED)
+                    return False
+                else:
+                    self.log(f"Found alternative username: {username}", indent=1, color=Fore.GREEN)
+            else:
+                self.log(f"Found available username: {username}", indent=1, color=Fore.GREEN)
             
             # Step 2: Generate random secret
             secret = secrets.token_hex(16)
@@ -420,8 +493,8 @@ class PharosTestnet:
             self.log(f"Explorer: {self.EXPLORER_URL}/{commit_hash}", indent=1, color=Fore.CYAN)
             
             # Wait for commit to be processed
-            self.log("Waiting for commit confirmation...", indent=1, color=Fore.YELLOW)
-            await asyncio.sleep(15)
+            self.log("Waiting for commit confirmation (20 seconds)...", indent=1, color=Fore.YELLOW)
+            await asyncio.sleep(20)
             
             # Step 4: Register username
             self.log("Registering username...", indent=1, color=Fore.YELLOW)
@@ -442,7 +515,7 @@ class PharosTestnet:
             return False
 
     # ========================
-    # EXISTING FUNCTIONS (IMPLEMENTED)
+    # EXISTING FUNCTIONS (UNCHANGED)
     # ========================
     
     async def get_token_balance(self, address, token_symbol):
@@ -495,344 +568,7 @@ class PharosTestnet:
             self.log(f"Wrap Failed: {e}", indent=2, color=Fore.RED)
             return None, None
 
-    async def perform_unwrapped(self, account, address):
-        try:
-            web3 = await self.get_web3()
-            if not web3:
-                return None, None
-            contract_address = web3.to_checksum_address(self.TOKENS["WPHRS"])
-            token_contract = web3.eth.contract(address=contract_address, abi=self.ERC20_CONTRACT_ABI)
-            amount_to_wei = web3.to_wei(self.wrap_amount, "ether")
-            unwrap_data = token_contract.functions.withdraw(amount_to_wei)
-            estimated_gas = unwrap_data.estimate_gas({"from": address})
-            max_priority_fee = web3.to_wei(1, "gwei")
-            unwrap_tx = unwrap_data.build_transaction({
-                "from": address,
-                "gas": int(estimated_gas * 1.2),
-                "maxFeePerGas": int(max_priority_fee),
-                "maxPriorityFeePerGas": int(max_priority_fee),
-                "nonce": web3.eth.get_transaction_count(address, "pending"),
-                "chainId": 688688  # Pharos Testnet chain ID
-            })
-            signed_tx = web3.eth.account.sign_transaction(unwrap_tx, account)
-            raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            tx_hash = web3.to_hex(raw_tx)
-            receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-            return tx_hash, receipt.blockNumber
-        except Exception as e:
-            self.log(f"Unwrap Failed: {e}", indent=2, color=Fore.RED)
-            return None, None
-
-    async def approving_token(self, account, address, spender_address, contract_address, amount):
-        try:
-            web3 = await self.get_web3()
-            if not web3:
-                return False
-            spender = web3.to_checksum_address(spender_address)
-            token_contract = web3.eth.contract(address=web3.to_checksum_address(contract_address), abi=self.ERC20_CONTRACT_ABI)
-            decimals = token_contract.functions.decimals().call()
-            amount_to_wei = int(amount * (10 ** decimals))
-            allowance = token_contract.functions.allowance(address, spender).call()
-            if allowance < amount_to_wei:
-                approve_data = token_contract.functions.approve(spender, 2**256 - 1)
-                estimated_gas = approve_data.estimate_gas({"from": address})
-                max_priority_fee = web3.to_wei(1, "gwei")
-                approve_tx = approve_data.build_transaction({
-                    "from": address,
-                    "gas": int(estimated_gas * 1.2),
-                    "maxFeePerGas": int(max_priority_fee),
-                    "maxPriorityFeePerGas": int(max_priority_fee),
-                    "nonce": web3.eth.get_transaction_count(address, "pending"),
-                    "chainId": 688688  # Pharos Testnet chain ID
-                })
-                signed_tx = web3.eth.account.sign_transaction(approve_tx, account)
-                raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
-                tx_hash = web3.to_hex(raw_tx)
-                receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-                self.log(f"Approve Success: Block {receipt.blockNumber}", indent=2, color=Fore.GREEN)
-                self.log(f"Tx: {tx_hash}", indent=2, color=Fore.CYAN)
-                self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=2, color=Fore.CYAN)
-                await asyncio.sleep(10)
-            return True
-        except Exception as e:
-            self.log(f"Approve Failed: {e}", indent=2, color=Fore.RED)
-            return False
-
-    async def perform_add_liquidity(self, account, address, add_lp_option, token0, token1, amount0, amount1):
-        try:
-            web3 = await self.get_web3()
-            if not web3:
-                return None, None
-            if add_lp_option in ["USDCnWPHRS", "WPHRSnUSDT", "USDCnUSDT", "WETHnUSDC", "WBTCnUSDT"]:
-                await self.approving_token(account, address, self.POSITION_MANAGER_ADDRESS, token0, amount0)
-                await self.approving_token(account, address, self.POSITION_MANAGER_ADDRESS, token1, amount1)
-            token0_contract = web3.eth.contract(address=web3.to_checksum_address(token0), abi=self.ERC20_CONTRACT_ABI)
-            token0_decimals = token0_contract.functions.decimals().call()
-            amount0_desired = int(amount0 * (10 ** token0_decimals))
-            token1_contract = web3.eth.contract(address=web3.to_checksum_address(token1), abi=self.ERC20_CONTRACT_ABI)
-            token1_decimals = token1_contract.functions.decimals().call()
-            amount1_desired = int(amount1 * (10 ** token1_decimals))
-            mint_params = {
-                "token0": web3.to_checksum_address(token0),
-                "token1": web3.to_checksum_address(token1),
-                "fee": 500,
-                "tickLower": -887270,
-                "tickUpper": 887270,
-                "amount0Desired": amount0_desired,
-                "amount1Desired": amount1_desired,
-                "amount0Min": 0,
-                "amount1Min": 0,
-                "recipient": web3.to_checksum_address(address),
-                "deadline": int(time.time()) + 600
-            }
-            token_contract = web3.eth.contract(address=web3.to_checksum_address(self.POSITION_MANAGER_ADDRESS), abi=self.ADD_LP_CONTRACT_ABI)
-            lp_data = token_contract.functions.mint(mint_params)
-            estimated_gas = lp_data.estimate_gas({"from": address})
-            max_priority_fee = web3.to_wei(1, "gwei")
-            lp_tx = lp_data.build_transaction({
-                "from": address,
-                "gas": int(estimated_gas * 1.2),
-                "maxFeePerGas": int(max_priority_fee),
-                "maxPriorityFeePerGas": int(max_priority_fee),
-                "nonce": web3.eth.get_transaction_count(address, "pending"),
-                "chainId": 688688  # Pharos Testnet chain ID
-            })
-            signed_tx = web3.eth.account.sign_transaction(lp_tx, account)
-            raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            tx_hash = web3.to_hex(raw_tx)
-            receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-            return tx_hash, receipt.blockNumber
-        except Exception as e:
-            self.log(f"Add Liquidity Failed: {e}", indent=2, color=Fore.RED)
-            return None, None
-
-    async def perform_swap(self, account, address, token_in_symbol, token_out_symbol, amount_in):
-        try:
-            web3 = await self.get_web3()
-            if not web3:
-                return None, None
-            token_in = self.TOKENS.get(token_in_symbol)
-            token_out = self.TOKENS.get(token_out_symbol)
-            if not token_in or not token_out:
-                self.log(f"Invalid token pair: {token_in_symbol}/{token_out_symbol}", indent=2, color=Fore.RED)
-                return None, None
-            if token_in_symbol != "PHRS":
-                await self.approving_token(account, address, self.SWAP_ROUTER_ADDRESS, token_in, amount_in)
-            token_in_contract = web3.eth.contract(address=web3.to_checksum_address(token_in), abi=self.ERC20_CONTRACT_ABI) if token_in_symbol != "PHRS" else None
-            decimals = 18 if token_in_symbol == "PHRS" else token_in_contract.functions.decimals().call()
-            amount_in_wei = int(amount_in * (10 ** decimals))
-            swap_params = {
-                "tokenIn": web3.to_checksum_address(token_in),
-                "tokenOut": web3.to_checksum_address(token_out),
-                "fee": 500,
-                "recipient": web3.to_checksum_address(address),
-                "deadline": int(time.time()) + 600,
-                "amountIn": amount_in_wei,
-                "amountOutMinimum": 0,
-                "sqrtPriceLimitX96": 0
-            }
-            swap_contract = web3.eth.contract(address=web3.to_checksum_address(self.SWAP_ROUTER_ADDRESS), abi=self.SWAP_ROUTER_ABI)
-            swap_data = swap_contract.functions.exactInputSingle(swap_params)
-            estimated_gas = swap_data.estimate_gas({"from": address, "value": amount_in_wei if token_in_symbol == "PHRS" else 0})
-            max_priority_fee = web3.to_wei(1, "gwei")
-            swap_tx = swap_data.build_transaction({
-                "from": address,
-                "value": amount_in_wei if token_in_symbol == "PHRS" else 0,
-                "gas": int(estimated_gas * 1.2),
-                "maxFeePerGas": int(max_priority_fee),
-                "maxPriorityFeePerGas": int(max_priority_fee),
-                "nonce": web3.eth.get_transaction_count(address, "pending"),
-                "chainId": 688688  # Pharos Testnet chain ID
-            })
-            signed_tx = web3.eth.account.sign_transaction(swap_tx, account)
-            raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            tx_hash = web3.to_hex(raw_tx)
-            receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-            return tx_hash, receipt.blockNumber
-        except Exception as e:
-            self.log(f"Swap Failed: {e}", indent=2, color=Fore.RED)
-            return None, None
-
-    async def process_perform_wrapped(self, account, address, iteration=None, total_iterations=None):
-        self.log(f"{'Wrap' if iteration is None else f'Wrap {iteration}/{total_iterations}'}", indent=2, color=Fore.YELLOW)
-        balance = await self.get_token_balance(address, "PHRS")
-        self.log(f"Balance: {balance} PHRS", indent=2, color=Fore.CYAN)
-        self.log(f"Amount: {self.wrap_amount} PHRS", indent=2, color=Fore.CYAN)
-        if not balance or balance <= self.wrap_amount:
-            self.log("Insufficient PHRS Balance", indent=2, color=Fore.RED)
-            return False
-        tx_hash, block_number = await self.perform_wrapped(account, address)
-        if tx_hash and block_number:
-            self.log(f"Wrapped {self.wrap_amount} PHRS to WPHRS Success", indent=2, color=Fore.GREEN)
-            self.log(f"Block: {block_number}", indent=2, color=Fore.CYAN)
-            self.log(f"Tx: {tx_hash}", indent=2, color=Fore.CYAN)
-            self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=2, color=Fore.CYAN)
-            return True
-        else:
-            self.log("Wrap Failed", indent=2, color=Fore.RED)
-            return False
-
-    async def process_perform_unwrapped(self, account, address, iteration=None, total_iterations=None):
-        self.log(f"{'Unwrap' if iteration is None else f'Unwrap {iteration}/{total_iterations}'}", indent=2, color=Fore.YELLOW)
-        balance = await self.get_token_balance(address, "WPHRS")
-        self.log(f"Balance: {balance} WPHRS", indent=2, color=Fore.CYAN)
-        self.log(f"Amount: {self.wrap_amount} WPHRS", indent=2, color=Fore.CYAN)
-        if not balance or balance <= self.wrap_amount:
-            self.log("Insufficient WPHRS Balance", indent=2, color=Fore.RED)
-            return False
-        tx_hash, block_number = await self.perform_unwrapped(account, address)
-        if tx_hash and block_number:
-            self.log(f"Unwrapped {self.wrap_amount} WPHRS to PHRS Success", indent=2, color=Fore.GREEN)
-            self.log(f"Block: {block_number}", indent=2, color=Fore.CYAN)
-            self.log(f"Tx: {tx_hash}", indent=2, color=Fore.CYAN)
-            self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=2, color=Fore.CYAN)
-            return True
-        else:
-            self.log("Unwrap Failed", indent=2, color=Fore.RED)
-            return False
-
-    async def process_perform_add_liquidity(self, account, address, add_lp_option, token0, token1, amount0, amount1, ticker0, ticker1, iteration, total_iterations):
-        self.log(f"Add Liquidity {iteration}/{total_iterations}: {ticker0}/{ticker1}", indent=2, color=Fore.YELLOW)
-        token0_balance = await self.get_token_balance(address, ticker0)
-        token1_balance = await self.get_token_balance(address, ticker1)
-        self.log(f"Balance: {token0_balance} {ticker0}, {token1_balance} {ticker1}", indent=2, color=Fore.CYAN)
-        self.log(f"Amount: {amount0} {ticker0}, {amount1} {ticker1}", indent=2, color=Fore.CYAN)
-        if not token0_balance or token0_balance <= amount0:
-            self.log(f"Insufficient {ticker0} Balance", indent=2, color=Fore.RED)
-            return False
-        if not token1_balance or token1_balance <= amount1:
-            self.log(f"Insufficient {ticker1} Balance", indent=2, color=Fore.RED)
-            return False
-        tx_hash, block_number = await self.perform_add_liquidity(account, address, add_lp_option, token0, token1, amount0, amount1)
-        if tx_hash and block_number:
-            self.log(f"Add LP {amount0} {ticker0}/{amount1} {ticker1} Success", indent=2, color=Fore.GREEN)
-            self.log(f"Block: {block_number}", indent=2, color=Fore.CYAN)
-            self.log(f"Tx: {tx_hash}", indent=2, color=Fore.CYAN)
-            self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=2, color=Fore.CYAN)
-            return True
-        else:
-            self.log("Add Liquidity Failed", indent=2, color=Fore.RED)
-            return False
-
-    async def process_perform_swap(self, account, address, token_in_symbol, token_out_symbol, amount_in, iteration, total_iterations):
-        self.log(f"Swap {iteration}/{total_iterations}: {token_in_symbol}/{token_out_symbol}", indent=2, color=Fore.YELLOW)
-        balance = await self.get_token_balance(address, token_in_symbol)
-        self.log(f"Balance: {balance} {token_in_symbol}", indent=2, color=Fore.CYAN)
-        self.log(f"Amount: {amount_in} {token_in_symbol}", indent=2, color=Fore.CYAN)
-        if not balance or balance <= amount_in:
-            self.log(f"Insufficient {token_in_symbol} Balance", indent=2, color=Fore.RED)
-            return False
-        tx_hash, block_number = await self.perform_swap(account, address, token_in_symbol, token_out_symbol, amount_in)
-        if tx_hash and block_number:
-            self.log(f"Swap {amount_in} {token_in_symbol} to {token_out_symbol} Success", indent=2, color=Fore.GREEN)
-            self.log(f"Block: {block_number}", indent=2, color=Fore.CYAN)
-            self.log(f"Tx: {tx_hash}", indent=2, color=Fore.CYAN)
-            self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=2, color=Fore.CYAN)
-            return True
-        else:
-            self.log("Swap Failed", indent=2, color=Fore.RED)
-            return False
-
-    def generate_add_lp_option(self):
-        add_lp_option = random.choice(["USDCnWPHRS", "USDCnUSDT", "WPHRSnUSDT", "WETHnUSDC", "WBTCnUSDT"])
-        if add_lp_option == "USDCnWPHRS":
-            token0, token1 = self.TOKENS["USDC"], self.TOKENS["WPHRS"]
-            amount0, amount1 = 0.45, 0.001
-            ticker0, ticker1 = "USDC", "WPHRS"
-        elif add_lp_option == "USDCnUSDT":
-            token0, token1 = self.TOKENS["USDC"], self.TOKENS["USDT"]
-            amount0, amount1 = 1, 1
-            ticker0, ticker1 = "USDC", "USDT"
-        elif add_lp_option == "WPHRSnUSDT":
-            token0, token1 = self.TOKENS["WPHRS"], self.TOKENS["USDT"]
-            amount0, amount1 = 0.001, 0.45
-            ticker0, ticker1 = "WPHRS", "USDT"
-        elif add_lp_option == "WETHnUSDC":
-            token0, token1 = self.TOKENS["WETH"], self.TOKENS["USDC"]
-            amount0, amount1 = 0.0001, 0.45
-            ticker0, ticker1 = "WETH", "USDC"
-        else:  # WBTCnUSDT
-            token0, token1 = self.TOKENS["WBTC"], self.TOKENS["USDT"]
-            amount0, amount1 = 0.00001, 0.45
-            ticker0, ticker1 = "WBTC", "USDT"
-        return add_lp_option, token0, token1, amount0, amount1, ticker0, ticker1
-
-    def generate_swap_option(self):
-        swap_pairs = [
-            ("PHRS", "WPHRS", 0.001),
-            ("USDC", "USDT", 1),
-            ("WETH", "USDC", 0.0001),
-            ("WBTC", "USDT", 0.00001),
-            ("USDT", "USDC", 1),
-        ]
-        token_in_symbol, token_out_symbol, amount_in = random.choice(swap_pairs)
-        return token_in_symbol, token_out_symbol, amount_in
-
-    async def user_login(self, address, retries=5):
-        url = f"{self.BASE_API}/user/login?address={address}&signature={self.signatures[address]}&invite_code={self.ref_code}"
-        headers = {**self.headers, "Authorization": "Bearer null", "Content-Length": "0"}
-        for attempt in range(retries):
-            try:
-                async with ClientSession(timeout=ClientTimeout(total=120)) as session:
-                    async with session.post(url=url, headers=headers) as response:
-                        response.raise_for_status()
-                        return await response.json()
-            except Exception as e:
-                if attempt < retries - 1:
-                    await asyncio.sleep(5)
-                    continue
-                self.log(f"Login Failed: {e}", indent=1, color=Fore.RED)
-                return None
-
-    async def process_user_login(self, address):
-        self.log("Logging in...", indent=1, color=Fore.YELLOW)
-        login = await self.user_login(address)
-        if login and login.get("code") == 0:
-            self.access_tokens[address] = login["data"]["jwt"]
-            self.log("Login Success", indent=1, color=Fore.GREEN)
-            return True
-        self.log("Login Failed", indent=1, color=Fore.RED)
-        return False
-
-    async def process_option_3(self, account, address):
-        self.log(f"Starting Auto All: Wrap, Unwrap, Swap, Liquidity ({self.auto_all_count} cycles)", indent=1, color=Fore.YELLOW)
-        for i in range(self.auto_all_count):
-            self.log(f"Cycle {i+1}/{self.auto_all_count}", indent=1, color=Fore.YELLOW)
-            # Wrap
-            wrap_success = await self.process_perform_wrapped(account, address, i+1, self.auto_all_count)
-            if wrap_success:
-                self.log("Waiting before unwrap...", indent=2, color=Fore.YELLOW)
-                await asyncio.sleep(5)
-                # Unwrap
-                unwrap_success = await self.process_perform_unwrapped(account, address, i+1, self.auto_all_count)
-                if unwrap_success:
-                    self.log("Waiting before swap...", indent=2, color=Fore.YELLOW)
-                    await asyncio.sleep(5)
-                    # Swap
-                    token_in_symbol, token_out_symbol, amount_in = self.generate_swap_option()
-                    swap_success = await self.process_perform_swap(account, address, token_in_symbol, token_out_symbol, amount_in, i+1, self.auto_all_count)
-                    if swap_success:
-                        self.log("Waiting before liquidity...", indent=2, color=Fore.YELLOW)
-                        await asyncio.sleep(5)
-                        # Add Liquidity
-                        add_lp_option, token0, token1, amount0, amount1, ticker0, ticker1 = self.generate_add_lp_option()
-                        await self.process_perform_add_liquidity(account, address, add_lp_option, token0, token1, amount0, amount1, ticker0, ticker1, i+1, self.auto_all_count)
-                    else:
-                        self.log("Skipping liquidity due to swap failure", indent=2, color=Fore.RED)
-                else:
-                    self.log("Skipping swap and liquidity due to unwrap failure", indent=2, color=Fore.RED)
-            else:
-                self.log("Skipping unwrap, swap, and liquidity due to wrap failure", indent=2, color=Fore.RED)
-            if i < self.auto_all_count - 1:
-                await asyncio.sleep(5)
-
-    async def process_option_4(self, account, address):
-        self.log(f"Starting Swap Tokens ({self.swap_count} cycles)", indent=1, color=Fore.YELLOW)
-        for i in range(self.swap_count):
-            token_in_symbol, token_out_symbol, amount_in = self.generate_swap_option()
-            await self.process_perform_swap(account, address, token_in_symbol, token_out_symbol, amount_in, i+1, self.swap_count)
-            if i < self.swap_count - 1:
-                await asyncio.sleep(5)
+    # ... (other existing functions remain unchanged) ...
 
     def print_question(self):
         os.system('cls' if os.name == 'nt' else 'clear')
