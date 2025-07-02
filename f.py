@@ -1,11 +1,27 @@
-from web3 import Web3
+#!/usr/bin/env python3
+"""
+PHAROS X Faroswap Auto Tx Bot - Modern CLI Version
+
+Dependencies: web3, eth-account, aiohttp, fake-useragent, colorama
+
+Install all dependencies with:
+    pip install web3 eth-account aiohttp fake-useragent colorama
+
+Put private keys in pkey.txt (one per line)
+"""
+
+import asyncio
+import json
+import os
+import random
+import time
+import sys
 from eth_utils import to_hex
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from aiohttp import ClientSession, ClientTimeout
 from fake_useragent import FakeUserAgent
 from colorama import init, Fore, Style
-import asyncio, json, os, random, time, sys
 
 # Initialize colorama for colored output
 init(autoreset=True)
@@ -223,6 +239,7 @@ class PharosTestnet:
     async def get_web3(self, retries=3, timeout=60):
         for attempt in range(retries):
             try:
+                from web3 import Web3
                 web3 = Web3(Web3.HTTPProvider(self.RPC_URL, request_kwargs={"timeout": timeout}))
                 web3.eth.get_block_number()
                 return web3
@@ -254,6 +271,11 @@ class PharosTestnet:
             self.log(f"Get Token Balance Failed for {token_symbol}: {e}", indent=1, color=Fore.RED)
             return None
 
+    async def _wait_for_tx_receipt(self, web3, tx_hash, timeout):
+        loop = asyncio.get_event_loop()
+        func = lambda: web3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+        return await loop.run_in_executor(None, func)
+
     async def perform_wrapped(self, account, address):
         try:
             web3 = await self.get_web3()
@@ -277,7 +299,7 @@ class PharosTestnet:
             signed_tx = web3.eth.account.sign_transaction(wrap_tx, account)
             raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash = web3.to_hex(raw_tx)
-            receipt = await asyncio.to_thread(web3.eth.wait_for_transaction_receipt, tx_hash, timeout=300)
+            receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
             return tx_hash, receipt.blockNumber
         except Exception as e:
             self.log(f"Wrap Failed: {e}", indent=2, color=Fore.RED)
@@ -305,7 +327,7 @@ class PharosTestnet:
             signed_tx = web3.eth.account.sign_transaction(unwrap_tx, account)
             raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash = web3.to_hex(raw_tx)
-            receipt = await asyncio.to_thread(web3.eth.wait_for_transaction_receipt, tx_hash, timeout=300)
+            receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
             return tx_hash, receipt.blockNumber
         except Exception as e:
             self.log(f"Unwrap Failed: {e}", indent=2, color=Fore.RED)
@@ -336,7 +358,7 @@ class PharosTestnet:
                 signed_tx = web3.eth.account.sign_transaction(approve_tx, account)
                 raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
                 tx_hash = web3.to_hex(raw_tx)
-                receipt = await asyncio.to_thread(web3.eth.wait_for_transaction_receipt, tx_hash, timeout=300)
+                receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
                 self.log(f"Approve Success: Block {receipt.blockNumber}", indent=2, color=Fore.GREEN)
                 self.log(f"Tx: {tx_hash}", indent=2, color=Fore.CYAN)
                 self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=2, color=Fore.CYAN)
@@ -388,7 +410,7 @@ class PharosTestnet:
             signed_tx = web3.eth.account.sign_transaction(lp_tx, account)
             raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash = web3.to_hex(raw_tx)
-            receipt = await asyncio.to_thread(web3.eth.wait_for_transaction_receipt, tx_hash, timeout=300)
+            receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
             return tx_hash, receipt.blockNumber
         except Exception as e:
             self.log(f"Add Liquidity Failed: {e}", indent=2, color=Fore.RED)
@@ -435,7 +457,7 @@ class PharosTestnet:
             signed_tx = web3.eth.account.sign_transaction(swap_tx, account)
             raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash = web3.to_hex(raw_tx)
-            receipt = await asyncio.to_thread(web3.eth.wait_for_transaction_receipt, tx_hash, timeout=300)
+            receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
             return tx_hash, receipt.blockNumber
         except Exception as e:
             self.log(f"Swap Failed: {e}", indent=2, color=Fore.RED)
@@ -710,7 +732,7 @@ class PharosTestnet:
                     print(f"{Style.BRIGHT + Fore.RED}Exiting...")
                     break
         except FileNotFoundError:
-            self.log("File 'pkey.txt' Not Found.", indent=0, color=Fore.RED)
+            self.log("File 'pkey.txt' Not Found. Create it and add private keys.", indent=0, color=Fore.RED)
         except Exception as e:
             self.log(f"Error: {e}", indent=0, color=Fore.RED)
 
