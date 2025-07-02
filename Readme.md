@@ -1,1 +1,1 @@
-pip install web3 python-dotenv requests
+npm install dotenv web3 uuid crypto-js
