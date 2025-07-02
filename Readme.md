@@ -23,7 +23,7 @@ Bot otomatis untuk melakukan berbagai transaksi di testnet Pharos Network, terma
 
 1. Clone repositori:
    ```bash
-   git clone https://github.com/dicoderin/Faroswap
+   git clone https://github.com/dicoderin/Faroswap.git
    cd Faroswap
    ```
 
@@ -44,7 +44,7 @@ Setelah menjalankan bot, Anda akan melihat menu interaktif:
 
 ```
 ==================================================
-     PHAROS X Faroswap Auto Tx Bot By Azura         
+     PHAROS X Faroswap Auto Tx Eyren         
            LETS FUCK THIS TESTNET           
 ==================================================
 1. Wrap PHRS to WPHRS
