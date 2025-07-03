@@ -40,7 +40,7 @@ class PharosTestnet:
         }
         self.BASE_API = "https://api.pharosnetwork.xyz"
         self.RPC_URL = "https://api.zan.top/node/v1/pharos/testnet/f4a9eb274053406d91e67c193867a80a"
-        self.ALT_RPC_URL = "https://pharos-testnet.rpc.socialscan.io"
+        self.ALT_RPC_URL = "https://testnet.dplabs-internal.com"
         self.TOKENS = {
             "PHRS": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
             "WBTC": "0x8275c526d1bCEc59a31d673929d3cE8d108fF5c7",
