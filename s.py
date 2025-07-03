@@ -40,6 +40,7 @@ class PharosTestnet:
         }
         self.BASE_API = "https://api.pharosnetwork.xyz"
         self.RPC_URL = "https://api.zan.top/node/v1/pharos/testnet/f4a9eb274053406d91e67c193867a80a"
+        self.ALT_RPC_URL = "https://pharos-testnet.rpc.socialscan.io"
         self.TOKENS = {
             "PHRS": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
             "WBTC": "0x8275c526d1bCEc59a31d673929d3cE8d108fF5c7",
@@ -122,6 +123,27 @@ class PharosTestnet:
                     {"name": "amount", "type": "uint256"}
                 ],
                 "outputs": [{"name": "", "type": "bool"}]
+            },
+            {
+                "type": "function",
+                "name": "name",
+                "stateMutability": "view",
+                "inputs": [],
+                "outputs": [{"name": "", "type": "string"}]
+            },
+            {
+                "type": "function",
+                "name": "symbol",
+                "stateMutability": "view",
+                "inputs": [],
+                "outputs": [{"name": "", "type": "string"}]
+            },
+            {
+                "type": "function",
+                "name": "totalSupply",
+                "stateMutability": "view",
+                "inputs": [],
+                "outputs": [{"name": "", "type": "uint256"}]
             }
         ]''')
         
@@ -449,19 +471,26 @@ class PharosTestnet:
         except:
             return None
 
-    async def get_web3(self, retries=3, timeout=60):
+    async def get_web3(self, retries=5, initial_delay=1):
+        from web3 import Web3
+        delay = initial_delay
         for attempt in range(retries):
             try:
-                from web3 import Web3
-                web3 = Web3(Web3.HTTPProvider(self.RPC_URL, request_kwargs={"timeout": timeout}))
-                web3.eth.get_block_number()
+                # Alternate between RPC providers to avoid rate limiting
+                rpc_url = self.RPC_URL if attempt % 2 == 0 else self.ALT_RPC_URL
+                web3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 60}))
+                # Check connection by getting block number
+                block_number = web3.eth.block_number
+                self.log(f"Connected to RPC (Block: {block_number})", indent=1, color=Fore.GREEN)
                 return web3
             except Exception as e:
                 if attempt < retries - 1:
-                    await asyncio.sleep(3)
-                    continue
-                self.log(f"Failed to Connect to RPC: {e}", indent=1, color=Fore.RED)
-                return None
+                    self.log(f"RPC connection attempt {attempt+1} failed: {e}, retrying in {delay} seconds...", indent=1, color=Fore.YELLOW)
+                    await asyncio.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                else:
+                    self.log(f"Failed to Connect to RPC after {retries} attempts: {e}", indent=1, color=Fore.RED)
+                    return None
 
     async def get_token_balance(self, address, token_symbol):
         try:
@@ -484,10 +513,21 @@ class PharosTestnet:
             self.log(f"Get Token Balance Failed for {token_symbol}: {e}", indent=1, color=Fore.RED)
             return None
 
-    async def _wait_for_tx_receipt(self, web3, tx_hash, timeout):
-        loop = asyncio.get_event_loop()
-        func = lambda: web3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
-        return await loop.run_in_executor(None, func)
+    async def _wait_for_tx_receipt(self, web3, tx_hash, timeout, retries=5, initial_delay=2):
+        delay = initial_delay
+        for attempt in range(retries):
+            try:
+                loop = asyncio.get_event_loop()
+                func = lambda: web3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+                return await loop.run_in_executor(None, func)
+            except Exception as e:
+                if attempt < retries - 1:
+                    self.log(f"Receipt fetch attempt {attempt+1} failed: {e}, retrying in {delay} seconds...", indent=2, color=Fore.YELLOW)
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                else:
+                    self.log(f"Failed to get transaction receipt after {retries} attempts: {e}", indent=2, color=Fore.RED)
+                    return None
 
     async def perform_wrapped(self, account, address):
         try:
@@ -513,7 +553,9 @@ class PharosTestnet:
             raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash = web3.to_hex(raw_tx)
             receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-            return tx_hash, receipt.blockNumber
+            if receipt:
+                return tx_hash, receipt.blockNumber
+            return None, None
         except Exception as e:
             self.log(f"Wrap Failed: {e}", indent=2, color=Fore.RED)
             return None, None
@@ -541,7 +583,9 @@ class PharosTestnet:
             raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash = web3.to_hex(raw_tx)
             receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-            return tx_hash, receipt.blockNumber
+            if receipt:
+                return tx_hash, receipt.blockNumber
+            return None, None
         except Exception as e:
             self.log(f"Unwrap Failed: {e}", indent=2, color=Fore.RED)
             return None, None
@@ -572,10 +616,13 @@ class PharosTestnet:
                 raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
                 tx_hash = web3.to_hex(raw_tx)
                 receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-                self.log(f"Approve Success: Block {receipt.blockNumber}", indent=2, color=Fore.GREEN)
-                self.log(f"Tx: {tx_hash}", indent=2, color=Fore.CYAN)
-                self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=2, color=Fore.CYAN)
-                await asyncio.sleep(10)
+                if receipt:
+                    self.log(f"Approve Success: Block {receipt.blockNumber}", indent=2, color=Fore.GREEN)
+                    self.log(f"Tx: {tx_hash}", indent=2, color=Fore.CYAN)
+                    self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=2, color=Fore.CYAN)
+                    await asyncio.sleep(10)
+                    return True
+                return False
             return True
         except Exception as e:
             self.log(f"Approve Failed: {e}", indent=2, color=Fore.RED)
@@ -624,7 +671,9 @@ class PharosTestnet:
             raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash = web3.to_hex(raw_tx)
             receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-            return tx_hash, receipt.blockNumber
+            if receipt:
+                return tx_hash, receipt.blockNumber
+            return None, None
         except Exception as e:
             self.log(f"Add Liquidity Failed: {e}", indent=2, color=Fore.RED)
             return None, None
@@ -671,7 +720,9 @@ class PharosTestnet:
             raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash = web3.to_hex(raw_tx)
             receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-            return tx_hash, receipt.blockNumber
+            if receipt:
+                return tx_hash, receipt.blockNumber
+            return None, None
         except Exception as e:
             self.log(f"Swap Failed: {e}", indent=2, color=Fore.RED)
             return None, None
@@ -858,104 +909,124 @@ class PharosTestnet:
                 await asyncio.sleep(5)
 
     async def deploy_token_contract(self, account, address):
-        try:
-            web3 = await self.get_web3()
-            if not web3:
-                return None, None
-            
-            # Encode constructor parameters
-            constructor_params = web3.codec.encode_abi(
-                ['string', 'string', 'uint256'],
-                [self.token_name, self.token_symbol, int(self.token_supply * (10 ** 18))]
-            )
-            
-            # Combine bytecode with constructor parameters
-            deployment_bytecode = self.TOKEN_BYTECODE + constructor_params.hex()[2:]
-            
-            # Build deployment transaction
-            deployment_tx = {
-                'from': address,
-                'data': deployment_bytecode,
-                'gas': 3000000,
-                'maxFeePerGas': web3.to_wei(1.5, 'gwei'),
-                'maxPriorityFeePerGas': web3.to_wei(1, 'gwei'),
-                'nonce': web3.eth.get_transaction_count(address, 'pending'),
-                'chainId': web3.eth.chain_id
-            }
-            
-            # Estimate gas
-            estimated_gas = web3.eth.estimate_gas(deployment_tx)
-            deployment_tx['gas'] = int(estimated_gas * 1.2)
-            
-            # Sign and send transaction
-            signed_tx = web3.eth.account.sign_transaction(deployment_tx, account)
-            raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            tx_hash = web3.to_hex(raw_tx)
-            
-            # Wait for receipt
-            receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-            contract_address = receipt.contractAddress
-            
-            self.log(f"Token Contract Deployed Successfully!", indent=1, color=Fore.GREEN)
-            self.log(f"Contract Address: {contract_address}", indent=1, color=Fore.CYAN)
-            self.log(f"Tx: {tx_hash}", indent=1, color=Fore.CYAN)
-            self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=1, color=Fore.CYAN)
-            
-            self.token_contract_address = contract_address
-            return tx_hash, contract_address
-        except Exception as e:
-            self.log(f"Token Deployment Failed: {e}", indent=1, color=Fore.RED)
-            return None, None
+        max_retries = 5
+        delay = 5
+        for attempt in range(max_retries):
+            try:
+                web3 = await self.get_web3()
+                if not web3:
+                    return None, None
+                
+                # Encode constructor parameters
+                constructor_params = web3.codec.encode_abi(
+                    ['string', 'string', 'uint256'],
+                    [self.token_name, self.token_symbol, int(self.token_supply * (10 ** 18))]
+                )
+                
+                # Combine bytecode with constructor parameters
+                deployment_bytecode = self.TOKEN_BYTECODE + constructor_params.hex()[2:]
+                
+                # Build deployment transaction
+                deployment_tx = {
+                    'from': address,
+                    'data': deployment_bytecode,
+                    'gas': 3000000,
+                    'maxFeePerGas': web3.to_wei(1.5, 'gwei'),
+                    'maxPriorityFeePerGas': web3.to_wei(1, 'gwei'),
+                    'nonce': web3.eth.get_transaction_count(address, 'pending'),
+                    'chainId': web3.eth.chain_id
+                }
+                
+                # Estimate gas
+                estimated_gas = web3.eth.estimate_gas(deployment_tx)
+                deployment_tx['gas'] = int(estimated_gas * 1.2)
+                
+                # Sign and send transaction
+                signed_tx = web3.eth.account.sign_transaction(deployment_tx, account)
+                raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                tx_hash = web3.to_hex(raw_tx)
+                
+                # Wait for receipt
+                receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
+                if receipt and receipt.contractAddress:
+                    contract_address = receipt.contractAddress
+                    self.log(f"Token Contract Deployed Successfully!", indent=1, color=Fore.GREEN)
+                    self.log(f"Contract Address: {contract_address}", indent=1, color=Fore.CYAN)
+                    self.log(f"Tx: {tx_hash}", indent=1, color=Fore.CYAN)
+                    self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=1, color=Fore.CYAN)
+                    self.token_contract_address = contract_address
+                    return tx_hash, contract_address
+                else:
+                    self.log("Failed to get contract address from receipt", indent=1, color=Fore.YELLOW)
+                    continue
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    self.log(f"Token Deployment attempt {attempt+1} failed: {e}, retrying in {delay} seconds...", indent=1, color=Fore.YELLOW)
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                else:
+                    self.log(f"Token Deployment Failed after {max_retries} attempts: {e}", indent=1, color=Fore.RED)
+                    return None, None
 
     async def deploy_nft_contract(self, account, address):
-        try:
-            web3 = await self.get_web3()
-            if not web3:
-                return None, None
-            
-            # Encode constructor parameters
-            constructor_params = web3.codec.encode_abi(
-                ['string', 'string'],
-                [self.nft_name, self.nft_symbol]
-            )
-            
-            # Combine bytecode with constructor parameters
-            deployment_bytecode = self.NFT_BYTECODE + constructor_params.hex()[2:]
-            
-            # Build deployment transaction
-            deployment_tx = {
-                'from': address,
-                'data': deployment_bytecode,
-                'gas': 3000000,
-                'maxFeePerGas': web3.to_wei(1.5, 'gwei'),
-                'maxPriorityFeePerGas': web3.to_wei(1, 'gwei'),
-                'nonce': web3.eth.get_transaction_count(address, 'pending'),
-                'chainId': web3.eth.chain_id
-            }
-            
-            # Estimate gas
-            estimated_gas = web3.eth.estimate_gas(deployment_tx)
-            deployment_tx['gas'] = int(estimated_gas * 1.2)
-            
-            # Sign and send transaction
-            signed_tx = web3.eth.account.sign_transaction(deployment_tx, account)
-            raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            tx_hash = web3.to_hex(raw_tx)
-            
-            # Wait for receipt
-            receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-            contract_address = receipt.contractAddress
-            
-            self.log(f"NFT Contract Deployed Successfully!", indent=1, color=Fore.GREEN)
-            self.log(f"Contract Address: {contract_address}", indent=1, color=Fore.CYAN)
-            self.log(f"Tx: {tx_hash}", indent=1, color=Fore.CYAN)
-            self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=1, color=Fore.CYAN)
-            
-            self.nft_contract_address = contract_address
-            return tx_hash, contract_address
-        except Exception as e:
-            self.log(f"NFT Deployment Failed: {e}", indent=1, color=Fore.RED)
-            return None, None
+        max_retries = 5
+        delay = 5
+        for attempt in range(max_retries):
+            try:
+                web3 = await self.get_web3()
+                if not web3:
+                    return None, None
+                
+                # Encode constructor parameters
+                constructor_params = web3.codec.encode_abi(
+                    ['string', 'string'],
+                    [self.nft_name, self.nft_symbol]
+                )
+                
+                # Combine bytecode with constructor parameters
+                deployment_bytecode = self.NFT_BYTECODE + constructor_params.hex()[2:]
+                
+                # Build deployment transaction
+                deployment_tx = {
+                    'from': address,
+                    'data': deployment_bytecode,
+                    'gas': 3000000,
+                    'maxFeePerGas': web3.to_wei(1.5, 'gwei'),
+                    'maxPriorityFeePerGas': web3.to_wei(1, 'gwei'),
+                    'nonce': web3.eth.get_transaction_count(address, 'pending'),
+                    'chainId': web3.eth.chain_id
+                }
+                
+                # Estimate gas
+                estimated_gas = web3.eth.estimate_gas(deployment_tx)
+                deployment_tx['gas'] = int(estimated_gas * 1.2)
+                
+                # Sign and send transaction
+                signed_tx = web3.eth.account.sign_transaction(deployment_tx, account)
+                raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                tx_hash = web3.to_hex(raw_tx)
+                
+                # Wait for receipt
+                receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
+                if receipt and receipt.contractAddress:
+                    contract_address = receipt.contractAddress
+                    self.log(f"NFT Contract Deployed Successfully!", indent=1, color=Fore.GREEN)
+                    self.log(f"Contract Address: {contract_address}", indent=1, color=Fore.CYAN)
+                    self.log(f"Tx: {tx_hash}", indent=1, color=Fore.CYAN)
+                    self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=1, color=Fore.CYAN)
+                    self.nft_contract_address = contract_address
+                    return tx_hash, contract_address
+                else:
+                    self.log("Failed to get contract address from receipt", indent=1, color=Fore.YELLOW)
+                    continue
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    self.log(f"NFT Deployment attempt {attempt+1} failed: {e}, retrying in {delay} seconds...", indent=1, color=Fore.YELLOW)
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                else:
+                    self.log(f"NFT Deployment Failed after {max_retries} attempts: {e}", indent=1, color=Fore.RED)
+                    return None, None
 
     async def interact_with_token(self, account, address, contract_address):
         try:
@@ -972,9 +1043,10 @@ class PharosTestnet:
             self.log("1. Transfer Tokens", indent=1)
             self.log("2. Check Balance", indent=1)
             self.log("3. Approve Spending", indent=1)
-            self.log("4. Back to Main Menu", indent=1)
+            self.log("4. Check Token Info", indent=1)
+            self.log("5. Back to Main Menu", indent=1)
             
-            choice = input(f"{Style.BRIGHT + Fore.CYAN}Enter your choice (1-4): ").strip()
+            choice = input(f"{Style.BRIGHT + Fore.CYAN}Enter your choice (1-5): ").strip()
             
             if choice == '1':
                 # Transfer tokens
@@ -1001,9 +1073,12 @@ class PharosTestnet:
                 tx_hash = web3.to_hex(raw_tx)
                 
                 receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-                self.log(f"Transfer Success: Block {receipt.blockNumber}", indent=1, color=Fore.GREEN)
-                self.log(f"Tx: {tx_hash}", indent=1, color=Fore.CYAN)
-                self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=1, color=Fore.CYAN)
+                if receipt:
+                    self.log(f"Transfer Success: Block {receipt.blockNumber}", indent=1, color=Fore.GREEN)
+                    self.log(f"Tx: {tx_hash}", indent=1, color=Fore.CYAN)
+                    self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=1, color=Fore.CYAN)
+                else:
+                    self.log("Transfer Failed", indent=1, color=Fore.RED)
                 
             elif choice == '2':
                 # Check balance
@@ -1037,9 +1112,24 @@ class PharosTestnet:
                 tx_hash = web3.to_hex(raw_tx)
                 
                 receipt = await self._wait_for_tx_receipt(web3, tx_hash, 300)
-                self.log(f"Approval Success: Block {receipt.blockNumber}", indent=1, color=Fore.GREEN)
-                self.log(f"Tx: {tx_hash}", indent=1, color=Fore.CYAN)
-                self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=1, color=Fore.CYAN)
+                if receipt:
+                    self.log(f"Approval Success: Block {receipt.blockNumber}", indent=1, color=Fore.GREEN)
+                    self.log(f"Tx: {tx_hash}", indent=1, color=Fore.CYAN)
+                    self.log(f"Explorer: {self.EXPLORER_URL}/{tx_hash}", indent=1, color=Fore.CYAN)
+                else:
+                    self.log("Approval Failed", indent=1, color=Fore.RED)
+                    
+            elif choice == '4':
+                # Check token info
+                name = token_contract.functions.name().call()
+                symbol = token_contract.functions.symbol().call()
+                decimals = token_contract.functions.decimals().call()
+                total_supply = token_contract.functions.totalSupply().call() / (10 ** decimals)
+                
+                self.log(f"Token Name: {name}", indent=1, color=Fore.CYAN)
+                self.log(f"Token Symbol: {symbol}", indent=1, color=Fore.CYAN)
+                self.log(f"Decimals: {decimals}", indent=1, color=Fore.CYAN)
+                self.log(f"Total Supply: {total_supply}", indent=1, color=Fore.CYAN)
                 
         except Exception as e:
             self.log(f"Token Interaction Failed: {e}", indent=1, color=Fore.RED)
