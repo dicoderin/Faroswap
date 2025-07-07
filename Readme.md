@@ -27,7 +27,23 @@ Bot otomatis untuk melakukan berbagai transaksi di testnet Pharos Network, terma
    cd Faroswap
    ```
 
-2. Buat file `pkey.txt` dan tambahkan private key Anda (satu per baris):
+   ```bash
+   pip install -r requirements.txt #or pip3 install -r requirements.txt
+   ```
+   ```bash
+     pip show libary_name
+   ```
+   ```bash
+     pip uninstall libary_name
+   ```
+   ```bash
+     pip install libary_name==version
+   ```
+   ```bash
+   toouch proxy.txt
+   ```
+
+2. Buat file `accounts.txt` dan tambahkan private key Anda (satu per baris):
    ```text
    0xYourPrivateKey1
    0xYourPrivateKey2
@@ -38,24 +54,7 @@ Bot otomatis untuk melakukan berbagai transaksi di testnet Pharos Network, terma
    python f.py
    ```
 
-## Penggunaan
-
-Setelah menjalankan bot, Anda akan melihat menu interaktif:
-
-```
-==================================================
-     PHAROS X Faroswap Auto Tx Eyren         
-           LETS FUCK THIS TESTNET           
-==================================================
-1. Wrap PHRS to WPHRS
-2. Unwrap WPHRS to PHRS
-3. Auto All (Wrap, Unwrap, Swap, Liquidity)
-4. Swap Tokens
-5. Exit
-==================================================
-```
-
-Pilih opsi yang diinginkan dan ikuti petunjuk di layar.
+   
 
 ### Opsi Tersedia
 
@@ -74,7 +73,7 @@ Pilih opsi yang diinginkan dan ikuti petunjuk di layar.
 ```
 pharos-testnet-bot/
 ├── f.py      # File utama bot
-├── pkey.txt           # File untuk menyimpan private keys
+├── accounts.txt           # File untuk menyimpan private keys
 ├── README.md          # File dokumentasi ini
 ```
 
